@@ -1,4 +1,4 @@
-from vpython import sphere, cylinder, vector, rate, box
+from vpython import sphere, cylinder, vector, rate, box, scene, keysdown
 import numpy as np
 
 class Joint:
@@ -123,11 +123,79 @@ skeleton.add_joint("fibula_top", [0.15, 1.95, 0], "knee_center", radius=0.05, co
 skeleton.add_joint("fibula_mid", [0.15, 1.1, 0], "fibula_top", radius=0.05, color=vector(0.87, 0.77, 0.57))
 skeleton.add_joint("fibula_ankle", [0.15, 0.35, 0], "fibula_mid", radius=0.05, color=vector(0.87, 0.77, 0.57))
 
+# --- Camera Setup ---
+scene.width = 1200
+scene.height = 800
+scene.background = vector(0.2, 0.2, 0.25)
+scene.center = vector(0, 1.7, 0)  # Focus on knee
+scene.camera.pos = vector(2, 1.7, 2)  # Initial camera position
+scene.ambient = vector(0.5, 0.5, 0.5)
+
+# Camera movement variables
+camera_speed = 0.05
+zoom_speed = 0.1
+
 # --- Simulation Loop ---
 t = 0
 knee_angle = 0
 while True:
     rate(60)  # 60 FPS
+    
+    # Handle camera movement with keyboard
+    keys = keysdown()
+    
+    # WASD for camera movement in X-Z plane
+    if 'w' in keys:  # Move forward (toward knee)
+        scene.camera.pos -= (scene.camera.pos - scene.center) * camera_speed
+    if 's' in keys:  # Move backward
+        scene.camera.pos += (scene.camera.pos - scene.center) * camera_speed
+    if 'a' in keys:  # Move left
+        move_dir = vector(scene.camera.pos.z - scene.center.z, 0, -(scene.camera.pos.x - scene.center.x))
+        scene.camera.pos -= move_dir * camera_speed
+    if 'd' in keys:  # Move right
+        move_dir = vector(scene.camera.pos.z - scene.center.z, 0, -(scene.camera.pos.x - scene.center.x))
+        scene.camera.pos += move_dir * camera_speed
+    
+    # Arrow keys for camera height
+    if 'up' in keys:  # Move up
+        scene.camera.pos += vector(0, camera_speed, 0)
+    if 'down' in keys:  # Move down
+        scene.camera.pos -= vector(0, camera_speed, 0)
+    
+    # Zoom with +/- keys
+    if '+' in keys or '=' in keys:  # Zoom in
+        scene.camera.pos -= (scene.camera.pos - scene.center) * zoom_speed
+    if '-' in keys or '_' in keys:  # Zoom out
+        scene.camera.pos += (scene.camera.pos - scene.center) * zoom_speed
+    
+    # Q and E to rotate around the knee
+    if 'q' in keys:  # Rotate left
+        cam_dir = scene.camera.pos - scene.center
+        # Calculate distance
+        dist = np.sqrt(cam_dir.x**2 + cam_dir.y**2 + cam_dir.z**2)
+        # Convert to spherical, rotate around Y axis
+        theta = np.arctan2(cam_dir.z, cam_dir.x)
+        phi = np.arccos(cam_dir.y / dist) if dist > 0 else 0
+        theta += 0.05
+        # Convert back
+        new_x = dist * np.sin(phi) * np.cos(theta)
+        new_y = dist * np.cos(phi)
+        new_z = dist * np.sin(phi) * np.sin(theta)
+        scene.camera.pos = scene.center + vector(new_x, new_y, new_z)
+    
+    if 'e' in keys:  # Rotate right
+        cam_dir = scene.camera.pos - scene.center
+        # Calculate distance
+        dist = np.sqrt(cam_dir.x**2 + cam_dir.y**2 + cam_dir.z**2)
+        # Convert to spherical, rotate around Y axis
+        theta = np.arctan2(cam_dir.z, cam_dir.x)
+        phi = np.arccos(cam_dir.y / dist) if dist > 0 else 0
+        theta -= 0.05
+        # Convert back
+        new_x = dist * np.sin(phi) * np.cos(theta)
+        new_y = dist * np.cos(phi)
+        new_z = dist * np.sin(phi) * np.sin(theta)
+        scene.camera.pos = scene.center + vector(new_x, new_y, new_z)
     
     # Realistic knee bending motion (0 to ~120 degrees flexion)
     # Use a smooth sine wave for natural motion
