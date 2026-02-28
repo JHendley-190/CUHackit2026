@@ -233,12 +233,24 @@
             const server = await device.gatt.connect();
             setUIState('connected');
 
+            // helper that retries a GATT call a few times with delay
+        async function tryGatt(fn, attempts = 2, delay = 400) {
+          for (let i = 0; i < attempts; i++) {
             try {
-              // 1. Find the specific Service
-              const service = await server.getPrimaryService(IMU_SERVICE_UUID);
+              return await fn();
+            } catch (e) {
+              if (i === attempts - 1) throw e;
+              await new Promise(res => setTimeout(res, delay));
+            }
+          }
+        }
+
+        try {
+              // 1. Find the specific Service (retry once if initial lookup fails)
+              const service = await tryGatt(() => server.getPrimaryService(IMU_SERVICE_UUID));
               
               // 2. Find the specific Characteristic
-              const characteristic = await service.getCharacteristic(IMU_CHAR_UUID);
+              const characteristic = await tryGatt(() => service.getCharacteristic(IMU_CHAR_UUID));
               
               // 3. Subscribe to live notifications
               await characteristic.startNotifications();
