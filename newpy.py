@@ -1,140 +1,119 @@
-import numpy as np
-import re
-import matplotlib.pyplot as plt
+from vpython import *
+import math
 
-# =========================
-# IMU PARSER
-# =========================
-
-def parse_imu_log(text):
+# -------------------------------------------------------
+#                  IMU DATA PARSER
+# -------------------------------------------------------
+def parse_imu_line(line):
     """
-    Parse IMU log lines like:
-    IMU: -919 -169 -39 -6213 -1076 68
-    Returns numpy array Nx6: ax ay az gx gy gz
+    Parse lines of the format:
+    IMU: ax ay az gx gy gz
+    Returns floats.
     """
-    pattern = r"IMU:\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)"
-    matches = re.findall(pattern, text)
-    data = np.array(matches, dtype=float)
+    try:
+        parts = line.strip().split()
+        ax = float(parts[1])
+        ay = float(parts[2])
+        az = float(parts[3])
+        gx = float(parts[4])
+        gy = float(parts[5])
+        gz = float(parts[6])
+        return ax, ay, az, gx, gy, gz
+    except:
+        return None
 
-    # Convert to SI units
-    # Your accel appears raw ±2048 or ±4096 LSB/g → assume 16384 LSB = 1g (MPU6050)
-    accel_scale = 1/16384.0 * 9.81
-    gyro_scale  = 1/131.0 * np.pi/180.0
 
-    data[:, 0:3] *= accel_scale     # ax ay az  → m/s²
-    data[:, 3:6] *= gyro_scale      # gx gy gz  → rad/s
-    return data
+# -------------------------------------------------------
+#     COMPLEMENTARY FILTER ORIENTATION ESTIMATOR
+# -------------------------------------------------------
+def complementary_filter(ax, ay, az, gx, gy, gz, dt,
+                         prev_roll, prev_pitch, alpha=0.98):
+    # Gyroscope integration
+    roll_gyro  = prev_roll  + gx * dt
+    pitch_gyro = prev_pitch + gy * dt
 
+    # Accelerometer tilt estimate
+    roll_acc  = math.atan2(ay, az)
+    pitch_acc = math.atan2(-ax, math.sqrt(ay**2 + az**2))
 
-# =========================
-# COMPLEMENTARY FILTER
-# =========================
-
-def complementary_filter(accel, gyro, dt, alpha=0.98):
-    """
-    accel: Nx3 accelerometer (m/s²)
-    gyro : Nx3 gyro (rad/s)
-    dt   : timestep
-    """
-    N = accel.shape[0]
-    roll = np.zeros(N)
-    pitch = np.zeros(N)
-
-    # initial orientation from accel
-    ax, ay, az = accel[0]
-    roll[0]  = np.arctan2(ay, az)
-    pitch[0] = np.arctan2(-ax, np.sqrt(ay**2 + az**2))
-
-    for i in range(1, N):
-        gx, gy, gz = gyro[i]
-
-        # integrate gyro
-        roll_gyro  = roll[i-1]  + gx * dt
-        pitch_gyro = pitch[i-1] + gy * dt
-
-        # accel estimate
-        ax, ay, az = accel[i]
-        roll_accel  = np.arctan2(ay, az)
-        pitch_accel = np.arctan2(-ax, np.sqrt(ay**2 + az**2))
-
-        # complementary filter
-        roll[i]  = alpha*roll_gyro  + (1-alpha)*roll_accel
-        pitch[i] = alpha*pitch_gyro + (1-alpha)*pitch_accel
+    # Complementary filter
+    roll  = alpha*roll_gyro  + (1-alpha)*roll_acc
+    pitch = alpha*pitch_gyro + (1-alpha)*pitch_acc
 
     return roll, pitch
 
 
-# =========================
-# IMPACT / INJURY ESTIMATION
-# =========================
+# -------------------------------------------------------
+#        VPYTHON SCENE + SNOWBOARDER OBJECTS
+# -------------------------------------------------------
+scene = canvas(title="Snowboarder IMU Simulation",
+               width=1000, height=700,
+               center=vector(0,1,0), background=color.cyan)
 
-def detect_events(accel, gyro):
-    """
-    Detect:
-    - impacts (>20 m/s²)
-    - torsional knee load (> 200 deg/s)
-    - abrupt valgus/varus patterns
-    """
-    impacts = np.where(np.linalg.norm(accel, axis=1) > 20)[0]
+ground = box(pos=vector(0,-0.1,0), size=vector(20,0.1,20), color=color.white)
 
-    # knee torsion load ~ rotation around shin axis → z-axis gyro
-    torsion = np.where(np.abs(gyro[:,2]) > np.deg2rad(200))[0]
+# The snowboard
+board = box(pos=vector(0,0,0), size=vector(2.0,0.05,0.4), color=color.red)
 
-    # lateral acceleration → side load on knee
-    lateral = np.where(np.abs(accel[:,1]) > 8)[0]  # y-axis over 8 m/s²
-
-    return impacts, torsion, lateral
+# The rider
+rider = cylinder(pos=vector(0,0.5,0), axis=vector(0,1,0),
+                 radius=0.15, color=color.blue)
 
 
-# =========================
-# PLOT
-# =========================
+# -------------------------------------------------------
+#                SIMULATION LOOP
+# -------------------------------------------------------
+roll = 0.0
+pitch = 0.0
+yaw = 0.0
 
-def plot_results(roll, pitch, impacts, torsion, lateral):
-    t = np.arange(len(roll))
+# Fake IMU file (YOU WILL REPLACE THIS WITH YOUR DATA)
+imu_lines = []
+with open("imu_data.txt", "r") as f:
+    imu_lines = f.readlines()
 
-    plt.figure(figsize=(12,6))
-    plt.plot(t, np.rad2deg(roll), label="Roll (deg)")
-    plt.plot(t, np.rad2deg(pitch), label="Pitch (deg)")
+dt = 0.01  # time step
 
-    plt.scatter(impacts, np.zeros(len(impacts)), color='red', label="Impacts (>20 m/s²)")
-    plt.scatter(torsion, np.zeros(len(torsion)), color='purple', label="High Knee Torsion")
-    plt.scatter(lateral, np.zeros(len(lateral)), color='green', label="Lateral Knee Load")
+for line in imu_lines:
+    rate(dt)
 
-    plt.legend()
-    plt.xlabel("Time step")
-    plt.ylabel("Degrees")
-    plt.title("Snowboarder Leg IMU Orientation & Stress Markers")
-    plt.grid()
-    plt.show()
+    imu = parse_imu_line(line)
+    if imu is None:
+        continue
 
+    ax, ay, az, gx, gy, gz = imu
 
-# =========================
-# MAIN PIPELINE
-# =========================
+    # Convert gyro raw units → rad/s (assuming deg/s)
+    gx = math.radians(gx)
+    gy = math.radians(gy)
+    gz = math.radians(gz)
 
-def run_simulation(raw_imu_text):
-    imu = parse_imu_log(raw_imu_text)
-    accel = imu[:,0:3]
-    gyro  = imu[:,3:6]
+    # Update roll & pitch
+    roll, pitch = complementary_filter(ax, ay, az, gx, gy, gz, dt,
+                                       roll, pitch)
 
-    dt = 1/100.0  # assume 100 Hz
+    # Integrate yaw separately
+    yaw += gz * dt
 
-    roll, pitch = complementary_filter(accel, gyro, dt)
+    # ----------------------------
+    # Apply to the snowboard
+    # ----------------------------
+    # Create a rotation matrix from roll, pitch, yaw
+    c1 = math.cos(yaw)
+    s1 = math.sin(yaw)
+    c2 = math.cos(pitch)
+    s2 = math.sin(pitch)
+    c3 = math.cos(roll)
+    s3 = math.sin(roll)
 
-    impacts, torsion, lateral = detect_events(accel, gyro)
+    # Direction vectors
+    forward = vector(c1*c2, s2, s1*c2)
+    right    = vector(c1*s2*s3 - s1*c3, -c2*s3, s1*s2*s3 + c1*c3)
+    up       = vector(c1*s2*c3 + s1*s3, -c2*c3, s1*s2*c3 - c1*s3)
 
-    plot_results(roll, pitch, impacts, torsion, lateral)
+    # Update object's orientation
+    board.axis = forward
+    board.up = up
 
-    print("\n=== EVENT SUMMARY ===")
-    print(f"Impacts detected: {len(impacts)}")
-    print(f"Knee torsion events: {len(torsion)}")
-    print(f"Lateral knee load events: {len(lateral)}")
-
-    return {
-        "roll": roll,
-        "pitch": pitch,
-        "impacts": impacts,
-        "torsion": torsion,
-        "lateral": lateral
-    }
+    rider.pos = board.pos + vector(0,0.5,0)
+    rider.axis = up
