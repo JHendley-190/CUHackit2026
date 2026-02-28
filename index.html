@@ -229,9 +229,15 @@
         // ==========================================
         btnConnect.addEventListener('click', async () => {
           setUIState('connecting');
+          // clear any previous error styling
+          imuDisplay.style.color = '';
+          imuDisplay.style.borderLeftColor = '';
           try {
             const server = await device.gatt.connect();
             setUIState('connected');
+            // reset display color to green when connected
+            imuDisplay.style.color = '#4ade80';
+            imuDisplay.style.borderLeftColor = '#4ade80';
 
             // helper that retries a GATT call a few times with delay
         async function tryGatt(fn, attempts = 2, delay = 400) {
@@ -255,6 +261,8 @@
               // 3. Subscribe to live notifications
               await characteristic.startNotifications();
               imuDisplay.style.display = 'block';
+              imuDisplay.style.color = '#4ade80';
+              imuDisplay.style.borderLeftColor = '#4ade80';
               imuDisplay.innerText = "Stream Linked...";
 
               // 4. Parse incoming Nordic Little-Endian 16-bit Integer
