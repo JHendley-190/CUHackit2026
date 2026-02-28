@@ -238,8 +238,8 @@ while True:
         joint.position = np.array(joint.original_position)
     
     # Rotate tibia and fibula around the knee joint
-    skeleton.rotate_joint("tibia_top", [1, 0, 0], knee_angle)  # Rotate around X-axis
-    skeleton.rotate_joint("fibula_top", [1, 0, 0], knee_angle)
+    skeleton.rotate_joint("tibia_top", [1, 0, 0], -knee_angle)  # Rotate around X-axis
+    skeleton.rotate_joint("fibula_top", [1, 0, 0], -knee_angle)
     
     # Update graphics
     patella.pos = vector(0, 2.0 - 0.1 * np.sin(t), 0.15)  # Kneecap moves with knee
