@@ -254,6 +254,13 @@
                 const sensorValue = dataView.getUint16(0, true);
                 
                 imuDisplay.innerText = `CAPACITANCE: ${sensorValue}`;
+
+                // forward the reading to the local webserver so python can pick it up
+                fetch('/api/nordic', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ value: sensorValue })
+                }).catch(err => console.error('failed to send nordic value', err));
               });
 
             } catch (serviceErr) {

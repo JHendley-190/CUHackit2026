@@ -1,5 +1,16 @@
 from vpython import sphere, cylinder, vector, rate, box, scene, keysdown
 import numpy as np
+import requests   # used to fetch the nordic sensor value from the node server
+
+
+def get_nordic_value():
+    """Return the most recent numeric value pushed from the browser or None on failure."""
+    try:
+        resp = requests.get('http://127.0.0.1:3000/api/nordic', timeout=0.05)
+        return resp.json().get('value', None)
+    except Exception:
+        return None
+
 
 class Joint:
     def __init__(self, name, position, parent=None, radius=0.08, color=None, size=None):
@@ -197,9 +208,15 @@ while True:
         new_z = dist * np.sin(phi) * np.sin(theta)
         scene.camera.pos = scene.center + vector(new_x, new_y, new_z)
     
-    # Realistic knee bending motion (0 to ~120 degrees flexion)
-    # Use a smooth sine wave for natural motion
-    knee_angle = 0.8 * np.sin(t)  # Radians (about 45 degrees max)
+    # ----------------------------------------------------------------------------------
+    # obtain latest sensor reading and convert to an angle
+    sensor_val = get_nordic_value()
+    if sensor_val is not None:
+        # assume sensor provides 0..1023, map to roughly -0.8..0.8 radians
+        knee_angle = (sensor_val / 1023.0) * 1.6 - 0.8
+    else:
+        # fallback to automatic sine motion when no data is available
+        knee_angle = 0.8 * np.sin(t)
     
     # Reset joint positions to original
     for joint_name, joint in skeleton.joints.items():

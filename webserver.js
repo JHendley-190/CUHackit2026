@@ -3,6 +3,8 @@ const os = require('os');
 const fs = require('fs'); // New! Used to read files
 const path = require('path');
 
+let latestNordicData = null; // store last value from Nordic device
+
 const server = http.createServer((req, res) => {
   
   // ROUTE 1: The API Data (Backend)
@@ -26,6 +28,29 @@ const server = http.createServer((req, res) => {
     };
     
     return res.end(JSON.stringify(stats));
+  }
+
+  // ROUTE 1b: Nordic data storage
+  if (req.url === '/api/nordic') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ value: latestNordicData }));
+    } else if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          latestNordicData = data.value;
+          res.writeHead(200);
+          res.end('OK');
+        } catch (e) {
+          res.writeHead(400);
+          res.end('Bad JSON');
+        }
+      });
+      return;
+    }
   }
 
   // ROUTE 2: The Web Page (Frontend)
