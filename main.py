@@ -1,4 +1,4 @@
-from vpython import sphere, cylinder, vector, rate, ring, canvas, button, label
+from vpython import sphere, cylinder, vector, rate, box, scene, keysdown
 import numpy as np
 
 # --- Setup Scene & Camera ---
@@ -77,35 +77,30 @@ patella = sphere(pos=vector(0, 2.0, 0.18), radius=0.08, color=bone_color)
 lateral_meniscus = ring(pos=vector(-0.06, 1.97, 0), axis=vector(0,1,0), radius=0.06, thickness=0.02, color=cartilage_color)
 medial_meniscus = ring(pos=vector(0.06, 1.97, 0), axis=vector(0,1,0), radius=0.06, thickness=0.02, color=cartilage_color)
 
-# Ligaments
-acl = DynamicLigament(
-    lambda: tibia.joint_sphere1.pos + vector(0, 0.05, 0.05),
-    lambda: lateral_condyle.pos + vector(0.05, 0, -0.05)
-)
-pcl = DynamicLigament(
-    lambda: tibia.joint_sphere1.pos + vector(0, 0.05, -0.08),
-    lambda: medial_condyle.pos + vector(-0.05, 0, 0.05)
-)
-mcl = DynamicLigament(
-    lambda: medial_condyle.pos + vector(0.08, 0.1, 0),
-    lambda: tibia.joint_sphere1.pos + vector(0.1, -0.15, 0)
-)
-lcl = DynamicLigament(
-    lambda: lateral_condyle.pos + vector(-0.08, 0.1, 0),
-    lambda: fibula.joint_sphere1.pos + vector(-0.02, 0, 0)
-)
-patellar_tendon = DynamicLigament(
-    lambda: patella.pos + vector(0, -0.08, 0),
-    lambda: tibia.joint_sphere1.pos + vector(0, -0.2, 0.12),
-    radius=0.025
-)
-quad_tendon = DynamicLigament(
-    lambda: femur.end_pos + vector(0, 0.3, 0.12),
-    lambda: patella.pos + vector(0, 0.08, 0),
-    radius=0.025
-)
+# Kneecap (patella) - sits in front of knee
+patella = sphere(pos=vector(0, 2.0, 0.15), radius=0.09, color=vector(0.95, 0.85, 0.7))
 
-ligaments = [acl, pcl, mcl, lcl, patellar_tendon, quad_tendon]
+# Tibia (shinbone)
+skeleton.add_joint("tibia_top", [0, 2.0, 0], "knee_center", radius=0.1, color=vector(0.88, 0.78, 0.58))
+skeleton.add_joint("tibia_mid", [0, 1.2, 0], "tibia_top", radius=0.09, color=vector(0.88, 0.78, 0.58))
+skeleton.add_joint("ankle", [0, 0.4, 0], "tibia_mid", radius=0.08, color=vector(0.88, 0.78, 0.58))
+
+# Fibula (smaller leg bone, slightly to the side)
+skeleton.add_joint("fibula_top", [0.15, 1.95, 0], "knee_center", radius=0.05, color=vector(0.87, 0.77, 0.57))
+skeleton.add_joint("fibula_mid", [0.15, 1.1, 0], "fibula_top", radius=0.05, color=vector(0.87, 0.77, 0.57))
+skeleton.add_joint("fibula_ankle", [0.15, 0.35, 0], "fibula_mid", radius=0.05, color=vector(0.87, 0.77, 0.57))
+
+# --- Camera Setup ---
+scene.width = 1200
+scene.height = 800
+scene.background = vector(0.2, 0.2, 0.25)
+scene.center = vector(0, 1.7, 0)  # Focus on knee
+scene.camera.pos = vector(2, 1.7, 2)  # Initial camera position
+scene.ambient = vector(0.5, 0.5, 0.5)
+
+# Camera movement variables
+camera_speed = 0.05
+zoom_speed = 0.1
 
 # --- Simulation Loop ---
 t = 0
@@ -114,23 +109,78 @@ knee_origin = vector(0, 1.95, 0)
 current_angle = 0
 
 while True:
-    rate(60)
+    rate(60)  # 60 FPS
     
-    target_angle = 0.95 * (np.sin(t) + 1)
-    d_angle = target_angle - current_angle
+    # Handle camera movement with keyboard
+    keys = keysdown()
     
-    axis_of_rotation = [1, 0, 0]
-    tibia.rotate(d_angle, axis_of_rotation, [knee_origin.x, knee_origin.y, knee_origin.z])
-    fibula.rotate(d_angle, axis_of_rotation, [knee_origin.x, knee_origin.y, knee_origin.z])
+    # WASD for camera movement in X-Z plane
+    if 'w' in keys:  # Move forward (toward knee)
+        scene.camera.pos -= (scene.camera.pos - scene.center) * camera_speed
+    if 's' in keys:  # Move backward
+        scene.camera.pos += (scene.camera.pos - scene.center) * camera_speed
+    if 'a' in keys:  # Move left
+        move_dir = vector(scene.camera.pos.z - scene.center.z, 0, -(scene.camera.pos.x - scene.center.x))
+        scene.camera.pos -= move_dir * camera_speed
+    if 'd' in keys:  # Move right
+        move_dir = vector(scene.camera.pos.z - scene.center.z, 0, -(scene.camera.pos.x - scene.center.x))
+        scene.camera.pos += move_dir * camera_speed
     
-    lateral_meniscus.rotate(angle=d_angle, axis=vector(*axis_of_rotation), origin=knee_origin)
-    medial_meniscus.rotate(angle=d_angle, axis=vector(*axis_of_rotation), origin=knee_origin)
+    # Arrow keys for camera height
+    if 'up' in keys:  # Move up
+        scene.camera.pos += vector(0, camera_speed, 0)
+    if 'down' in keys:  # Move down
+        scene.camera.pos -= vector(0, camera_speed, 0)
     
-    patella.pos.y = 2.0 - (target_angle * 0.15)
-    patella.pos.z = 0.18 - (target_angle * 0.08)
+    # Zoom with +/- keys
+    if '+' in keys or '=' in keys:  # Zoom in
+        scene.camera.pos -= (scene.camera.pos - scene.center) * zoom_speed
+    if '-' in keys or '_' in keys:  # Zoom out
+        scene.camera.pos += (scene.camera.pos - scene.center) * zoom_speed
     
-    for lig in ligaments:
-        lig.update()
-        
-    current_angle = target_angle
-    t += dt
+    # Q and E to rotate around the knee
+    if 'q' in keys:  # Rotate left
+        cam_dir = scene.camera.pos - scene.center
+        # Calculate distance
+        dist = np.sqrt(cam_dir.x**2 + cam_dir.y**2 + cam_dir.z**2)
+        # Convert to spherical, rotate around Y axis
+        theta = np.arctan2(cam_dir.z, cam_dir.x)
+        phi = np.arccos(cam_dir.y / dist) if dist > 0 else 0
+        theta += 0.05
+        # Convert back
+        new_x = dist * np.sin(phi) * np.cos(theta)
+        new_y = dist * np.cos(phi)
+        new_z = dist * np.sin(phi) * np.sin(theta)
+        scene.camera.pos = scene.center + vector(new_x, new_y, new_z)
+    
+    if 'e' in keys:  # Rotate right
+        cam_dir = scene.camera.pos - scene.center
+        # Calculate distance
+        dist = np.sqrt(cam_dir.x**2 + cam_dir.y**2 + cam_dir.z**2)
+        # Convert to spherical, rotate around Y axis
+        theta = np.arctan2(cam_dir.z, cam_dir.x)
+        phi = np.arccos(cam_dir.y / dist) if dist > 0 else 0
+        theta -= 0.05
+        # Convert back
+        new_x = dist * np.sin(phi) * np.cos(theta)
+        new_y = dist * np.cos(phi)
+        new_z = dist * np.sin(phi) * np.sin(theta)
+        scene.camera.pos = scene.center + vector(new_x, new_y, new_z)
+    
+    # Realistic knee bending motion (0 to ~120 degrees flexion)
+    # Use a smooth sine wave for natural motion
+    knee_angle = 0.8 * np.sin(t)  # Radians (about 45 degrees max)
+    
+    # Reset joint positions to original
+    for joint_name, joint in skeleton.joints.items():
+        joint.position = np.array(joint.original_position)
+    
+    # Rotate tibia and fibula around the knee joint
+    skeleton.rotate_joint("tibia_top", [1, 0, 0], knee_angle)  # Rotate around X-axis
+    skeleton.rotate_joint("fibula_top", [1, 0, 0], knee_angle)
+    
+    # Update graphics
+    patella.pos = vector(0, 2.0 - 0.1 * np.sin(t), 0.15)  # Kneecap moves with knee
+    skeleton.update_graphics()
+    
+    t += 0.05
