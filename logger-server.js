@@ -1,15 +1,14 @@
 const http = require('http');
 const os = require('os');
-const fs = require('fs'); // New! Used to read files
+const fs = require('fs');
 const path = require('path');
 
-let latestNordicData = null; // store last value from Nordic device
-let previousNordicData = null; // track previous reading for delta calculation
-let eventLog = []; // log of threshold-exceeded events
-const THRESHOLD = 50; // change threshold per axis
+let latestNordicData = null;
+let previousNordicData = null;
+let eventLog = [];
+const THRESHOLD = 50;
 const THRESHOLD_LOG_FILE = path.join(__dirname, 'threshold-events.log');
 
-// Function to log threshold event to file
 function logThresholdEvent(event) {
   const logEntry = JSON.stringify(event) + '\n';
   fs.appendFile(THRESHOLD_LOG_FILE, logEntry, (err) => {
@@ -17,18 +16,11 @@ function logThresholdEvent(event) {
   });
 }
 
-// Helper function to calculate magnitude of change (accelerometer only - first 3 values)
 function calculateDelta(current, previous) {
-  if (!current || !previous) {
-    return null;
-  }
-  // Only use accelerometer data (first 3 values: AX, AY, AZ)
+  if (!current || !previous) return null;
   const accelCurrent = current.slice(0, 3);
   const accelPrevious = previous.slice(0, 3);
-  
-  if (accelCurrent.length !== accelPrevious.length) {
-    return null;
-  }
+  if (accelCurrent.length !== accelPrevious.length) return null;
   const deltas = accelCurrent.map((val, i) => Math.abs(val - accelPrevious[i]));
   const maxDelta = Math.max(...deltas);
   return { deltas, maxDelta };
@@ -36,30 +28,7 @@ function calculateDelta(current, previous) {
 
 const server = http.createServer((req, res) => {
   
-  // ROUTE 1: The API Data (Backend)
-  if (req.url === '/api/stats') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
-    const usedMem = totalMem - freeMem;
-    
-    // CPU Load is usually an array of [1min, 5min, 15min] averages. 
-    // We'll normalize it roughly to a percentage for the graph.
-    const rawLoad = os.loadavg()[0];
-    const cpuCores = os.cpus().length;
-    const cpuPercent = Math.min(((rawLoad / cpuCores) * 100), 100).toFixed(1);
-
-    const stats = {
-      cpuLoad: cpuPercent,
-      memPercent: ((usedMem / totalMem) * 100).toFixed(1),
-      uptime: os.uptime()
-    };
-    
-    return res.end(JSON.stringify(stats));
-  }
-
-  // ROUTE 1b: Nordic data storage
+  // Nordic data storage
   if (req.url === '/api/nordic') {
     if (req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -72,7 +41,6 @@ const server = http.createServer((req, res) => {
           const data = JSON.parse(body);
           const newValue = data.value;
           
-          // Calculate delta if we have previous data
           if (previousNordicData && Array.isArray(newValue) && Array.isArray(previousNordicData)) {
             const deltaInfo = calculateDelta(newValue, previousNordicData);
             if (deltaInfo && deltaInfo.maxDelta > THRESHOLD) {
@@ -84,9 +52,7 @@ const server = http.createServer((req, res) => {
                 maxDelta: deltaInfo.maxDelta
               };
               eventLog.push(event);
-              // Keep only last 100 events in memory
               if (eventLog.length > 100) eventLog.shift();
-              // Also log to file for persistent record
               logThresholdEvent(event);
             }
           }
@@ -104,7 +70,7 @@ const server = http.createServer((req, res) => {
     }
   }
 
-  // ROUTE 1c: Event log and current data
+  // Event log and current data
   if (req.url === '/api/imu-data') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
@@ -114,7 +80,7 @@ const server = http.createServer((req, res) => {
     }));
   }
 
-  // ROUTE 1d: Threshold events log file
+  // Threshold events log file
   if (req.url === '/api/threshold-events') {
     fs.readFile(THRESHOLD_LOG_FILE, 'utf8', (err, data) => {
       if (err) {
@@ -135,15 +101,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // ROUTE 2: The Web Page (Frontend)
+  // Serve logger.html
   if (req.url === '/') {
-    // We tell Node to read the index.html file and send it to the browser
-    const filePath = path.join(__dirname, 'index.html');
-    
+    const filePath = path.join(__dirname, 'logger.html');
     fs.readFile(filePath, (err, content) => {
       if (err) {
         res.writeHead(500);
-        return res.end('Error loading index.html');
+        return res.end('Error loading logger.html');
       }
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(content);
@@ -155,4 +119,4 @@ const server = http.createServer((req, res) => {
   res.end('Not Found');
 });
 
-server.listen(3000, () => console.log('Server live: http://127.0.0.1:3000'));
+server.listen(3001, () => console.log('Logger Server live: http://127.0.0.1:3001'));
