@@ -6,7 +6,7 @@ import requests   # used to fetch the nordic sensor value from the node server
 def get_nordic_value():
     """Return the most recent numeric value pushed from the browser or None on failure."""
     try:
-        resp = requests.get('http://127.0.0.1:3000/api/nordic', timeout=0.05)
+        resp = requests.get('http://127.0.0.1:3000/api/nordic', timeout=0.1)
         return resp.json().get('value', None)
     except Exception:
         return None
@@ -212,8 +212,23 @@ while True:
     # obtain latest sensor reading and convert to an angle
     sensor_val = get_nordic_value()
     if sensor_val is not None:
-        # assume sensor provides 0..1023, map to roughly -0.8..0.8 radians
-        knee_angle = (sensor_val / 1023.0) * 1.6 - 0.8
+        # If the IMU now sends a 6-element array, handle both array and single-value cases.
+        raw = None
+        if isinstance(sensor_val, list):
+            # pick first channel if present (adjust index as needed for your sensor mapping)
+            if len(sensor_val) >= 1 and sensor_val[0] is not None:
+                raw = sensor_val[0]
+        else:
+            raw = sensor_val
+
+        if raw is not None:
+            # Map an expected 0..1023 sensor reading to approx -0.8..0.8 radians
+            try:
+                knee_angle = (float(raw) / 1023.0) * 1.6 - 0.8
+            except Exception:
+                knee_angle = 0.8 * np.sin(t)
+        else:
+            knee_angle = 0.8 * np.sin(t)
     else:
         # fallback to automatic sine motion when no data is available
         knee_angle = 0.8 * np.sin(t)

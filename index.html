@@ -265,21 +265,29 @@
               imuDisplay.style.borderLeftColor = '#4ade80';
               imuDisplay.innerText = "Stream Linked...";
 
-              // 4. Parse incoming Nordic Little-Endian 16-bit Integer
+              // 4. Parse incoming Nordic Little-Endian 16-bit array (6 values expected)
               characteristic.addEventListener('characteristicvaluechanged', (event) => {
                 const dataView = event.target.value;
-                
-                // .getUint16(0, true) means:
-                // Start at byte 0, read 16 bits, 'true' = Little-Endian
-                const sensorValue = dataView.getUint16(0, true);
-                
-                imuDisplay.innerText = `CAPACITANCE: ${sensorValue}`;
 
-                // forward the reading to the local webserver so python can pick it up
+                // read up to 6 little-endian 16-bit signed integers
+                const values = [];
+                for (let i = 0; i < 6; i++) {
+                  const offset = i * 2;
+                  if (dataView.byteLength >= offset + 2) {
+                    values.push(dataView.getInt16(offset, true));
+                  } else {
+                    values.push(null);
+                  }
+                }
+
+                // display the array neatly
+                imuDisplay.innerText = `IMU: [${values.map(v => v === null ? 'null' : v).join(', ')}]`;
+
+                // forward the array to the local webserver so python can pick it up
                 fetch('/api/nordic', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ value: sensorValue })
+                  body: JSON.stringify({ value: values })
                 }).catch(err => console.error('failed to send nordic value', err));
               });
 
