@@ -1,148 +1,136 @@
-from vpython import sphere, cylinder, vector, rate, box
+from vpython import sphere, cylinder, vector, rate, ring, canvas, button, label
 import numpy as np
 
-class Joint:
-    def __init__(self, name, position, parent=None, radius=0.08, color=None, size=None):
-        self.name = name
-        self.position = np.array(position, dtype=float)
-        self.parent = parent
-        self.children = []
-        self.original_position = np.array(position, dtype=float)
-        if parent:
-            parent.children.append(self)
-        
-        # Default colors for different bone types
-        if color is None:
-            color = vector(0.8, 0.7, 0.5)  # Bone color
-        
-        # VPython graphics
-        self.sphere = sphere(pos=vector(*self.position), radius=radius, color=color)
-        self.cylinder = None
-        self.cylinder_color = vector(0.75, 0.65, 0.4)  # Slightly darker bone
-        if parent:
-            self._create_cylinder()
-    
-    def _create_cylinder(self):
-        if self.parent:
-            direction = self.position - self.parent.position
-            length = np.linalg.norm(direction)
-            if length > 0:
-                self.cylinder = cylinder(
-                    pos=vector(*self.parent.position),
-                    axis=vector(*direction),
-                    radius=0.06,
-                    color=self.cylinder_color
-                )
-    
-    def update_graphics(self):
-        self.sphere.pos = vector(*self.position)
-        if self.parent and self.cylinder:
-            direction = self.position - self.parent.position
-            self.cylinder.pos = vector(*self.parent.position)
-            self.cylinder.axis = vector(*direction)
+# --- Setup Scene & Camera ---
+scene = canvas(title='<b>Realistic Dynamic Knee Simulation</b>', width=800, height=600, background=vector(0.1, 0.1, 0.15))
+scene.center = vector(0, 1.95, 0) # Lock focus explicitly on the knee joint
+scene.camera.pos = vector(2, 2.5, 2) # Initial isometric view
+scene.camera.axis = scene.center - scene.camera.pos
+scene.autoscale = False # Prevent the camera from jumping around as the leg moves
 
-class Skeleton:
-    def __init__(self):
-        self.joints = {}
-        self.children_by_parent = {}
-    
-    def add_joint(self, name, position, parent_name=None, radius=0.08, color=None):
-        parent = self.joints.get(parent_name)
-        joint = Joint(name, position, parent, radius=radius, color=color)
-        self.joints[name] = joint
-        
-        if parent_name not in self.children_by_parent:
-            self.children_by_parent[parent_name] = []
-        self.children_by_parent[parent_name] = self.children_by_parent.get(parent_name, []) + [name]
-    
-    def rotate_joint(self, joint_name, axis, angle):
-        """Rotate a joint and its children around an axis"""
-        if joint_name not in self.joints:
-            return
-        
-        joint = self.joints[joint_name]
-        if not joint.parent:
-            return
-        
-        # Get rotation matrix
-        axis = np.array(axis)
-        axis = axis / np.linalg.norm(axis)
-        
-        # Rodrigues rotation formula
-        K = np.array([
-            [0, -axis[2], axis[1]],
-            [axis[2], 0, -axis[0]],
-            [-axis[1], axis[0], 0]
-        ])
-        R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
-        
-        # Rotate position relative to parent
-        relative_pos = joint.original_position - joint.parent.original_position
-        rotated_pos = joint.parent.position + R @ relative_pos
-        joint.position = rotated_pos
-        
-        # Rotate children recursively
-        for child_name in self.children_by_parent.get(joint_name, []):
-            self._rotate_children(child_name, joint, R, joint.original_position)
-    
-    def _rotate_children(self, joint_name, parent_joint, rotation_matrix, pivot_point):
-        """Recursively rotate children around a pivot point"""
-        if joint_name not in self.joints:
-            return
-        
-        child = self.joints[joint_name]
-        relative_pos = child.original_position - pivot_point
-        rotated_offset = rotation_matrix @ relative_pos
-        child.position = parent_joint.position + rotated_offset
-        
-        for grandchild_name in self.children_by_parent.get(joint_name, []):
-            self._rotate_children(grandchild_name, child, rotation_matrix, pivot_point)
-    
-    def update_graphics(self):
-        for joint in self.joints.values():
-            joint.update_graphics()
+# On-screen instructions
+label(pos=vector(0, 3.8, 0), text="Right-click & drag to rotate.\nScroll to zoom.", box=False, color=vector(0.8,0.8,0.8), opacity=0)
 
-# --- Create a Detailed Knee Structure ---
-skeleton = Skeleton()
+# --- Camera UI Controls ---
+def set_view_front(b):
+    scene.camera.pos = vector(0, 1.95, 3)
+    scene.camera.axis = scene.center - scene.camera.pos
 
-# Femur (thighbone)
-skeleton.add_joint("femur_top", [0, 3.5, 0], radius=0.12, color=vector(0.9, 0.8, 0.6))
-skeleton.add_joint("femur_mid", [0, 2.8, 0], "femur_top", radius=0.11, color=vector(0.9, 0.8, 0.6))
-skeleton.add_joint("knee_center", [0, 2.0, 0], "femur_mid", radius=0.13, color=vector(0.85, 0.75, 0.5))
+def set_view_side(b):
+    scene.camera.pos = vector(3, 1.95, 0)
+    scene.camera.axis = scene.center - scene.camera.pos
 
-# Kneecap (patella) - sits in front of knee
-patella = sphere(pos=vector(0, 2.0, 0.15), radius=0.09, color=vector(0.95, 0.85, 0.7))
+def set_view_iso(b):
+    scene.camera.pos = vector(2, 2.5, 2)
+    scene.camera.axis = scene.center - scene.camera.pos
 
-# Tibia (shinbone)
-skeleton.add_joint("tibia_top", [0, 2.0, 0], "knee_center", radius=0.1, color=vector(0.88, 0.78, 0.58))
-skeleton.add_joint("tibia_mid", [0, 1.2, 0], "tibia_top", radius=0.09, color=vector(0.88, 0.78, 0.58))
-skeleton.add_joint("ankle", [0, 0.4, 0], "tibia_mid", radius=0.08, color=vector(0.88, 0.78, 0.58))
+scene.append_to_caption('\n<b>Camera Controls:</b>\n')
+button(text='Front View', bind=set_view_front)
+button(text='Side View', bind=set_view_side)
+button(text='Isometric View', bind=set_view_iso)
+scene.append_to_caption('\n\n')
 
-# Fibula (smaller leg bone, slightly to the side)
-skeleton.add_joint("fibula_top", [0.15, 1.95, 0], "knee_center", radius=0.05, color=vector(0.87, 0.77, 0.57))
-skeleton.add_joint("fibula_mid", [0.15, 1.1, 0], "fibula_top", radius=0.05, color=vector(0.87, 0.77, 0.57))
-skeleton.add_joint("fibula_ankle", [0.15, 0.35, 0], "fibula_mid", radius=0.05, color=vector(0.87, 0.77, 0.57))
+# --- Helper Classes ---
+class Bone:
+    def __init__(self, start_pos, end_pos, radius, bone_color=vector(0.9, 0.88, 0.8)):
+        self.start_pos = vector(*start_pos)
+        self.end_pos = vector(*end_pos)
+        self.radius = radius
+        self.bone_color = bone_color
+        
+        self.cyl = cylinder(pos=self.start_pos, axis=self.end_pos - self.start_pos, 
+                            radius=self.radius, color=self.bone_color)
+        self.joint_sphere1 = sphere(pos=self.start_pos, radius=self.radius*1.1, color=self.bone_color)
+        self.joint_sphere2 = sphere(pos=self.end_pos, radius=self.radius*1.1, color=self.bone_color)
+
+    def rotate(self, angle, axis, origin):
+        for obj in [self.cyl, self.joint_sphere1, self.joint_sphere2]:
+            obj.rotate(angle=angle, axis=vector(*axis), origin=vector(*origin))
+
+class DynamicLigament:
+    def __init__(self, pos1_func, pos2_func, radius=0.015, color=vector(0.9, 0.9, 0.9)):
+        self.pos1_func = pos1_func
+        self.pos2_func = pos2_func
+        self.cyl = cylinder(radius=radius, color=color, opacity=0.9)
+        
+    def update(self):
+        p1 = self.pos1_func()
+        p2 = self.pos2_func()
+        self.cyl.pos = p1
+        self.cyl.axis = p2 - p1
+
+# --- Anatomy Setup ---
+bone_color = vector(0.89, 0.85, 0.78)
+cartilage_color = vector(0.6, 0.8, 0.9) 
+ligament_color = vector(0.9, 0.9, 0.9)
+
+# Bones
+femur = Bone([0, 3.5, 0], [0, 2.0, 0], radius=0.12)
+lateral_condyle = sphere(pos=vector(-0.08, 2.0, 0.04), radius=0.1, color=bone_color)
+medial_condyle = sphere(pos=vector(0.08, 2.0, 0.04), radius=0.1, color=bone_color)
+
+tibia = Bone([0, 1.95, 0], [0, 0.4, 0], radius=0.1)
+fibula = Bone([0.15, 1.85, -0.05], [0.15, 0.35, -0.05], radius=0.06)
+patella = sphere(pos=vector(0, 2.0, 0.18), radius=0.08, color=bone_color)
+
+# Meniscus
+lateral_meniscus = ring(pos=vector(-0.06, 1.97, 0), axis=vector(0,1,0), radius=0.06, thickness=0.02, color=cartilage_color)
+medial_meniscus = ring(pos=vector(0.06, 1.97, 0), axis=vector(0,1,0), radius=0.06, thickness=0.02, color=cartilage_color)
+
+# Ligaments
+acl = DynamicLigament(
+    lambda: tibia.joint_sphere1.pos + vector(0, 0.05, 0.05),
+    lambda: lateral_condyle.pos + vector(0.05, 0, -0.05)
+)
+pcl = DynamicLigament(
+    lambda: tibia.joint_sphere1.pos + vector(0, 0.05, -0.08),
+    lambda: medial_condyle.pos + vector(-0.05, 0, 0.05)
+)
+mcl = DynamicLigament(
+    lambda: medial_condyle.pos + vector(0.08, 0.1, 0),
+    lambda: tibia.joint_sphere1.pos + vector(0.1, -0.15, 0)
+)
+lcl = DynamicLigament(
+    lambda: lateral_condyle.pos + vector(-0.08, 0.1, 0),
+    lambda: fibula.joint_sphere1.pos + vector(-0.02, 0, 0)
+)
+patellar_tendon = DynamicLigament(
+    lambda: patella.pos + vector(0, -0.08, 0),
+    lambda: tibia.joint_sphere1.pos + vector(0, -0.2, 0.12),
+    radius=0.025
+)
+quad_tendon = DynamicLigament(
+    lambda: femur.end_pos + vector(0, 0.3, 0.12),
+    lambda: patella.pos + vector(0, 0.08, 0),
+    radius=0.025
+)
+
+ligaments = [acl, pcl, mcl, lcl, patellar_tendon, quad_tendon]
 
 # --- Simulation Loop ---
 t = 0
-knee_angle = 0
+dt = 0.03
+knee_origin = vector(0, 1.95, 0)
+current_angle = 0
+
 while True:
-    rate(60)  # 60 FPS
+    rate(60)
     
-    # Realistic knee bending motion (0 to ~120 degrees flexion)
-    # Use a smooth sine wave for natural motion
-    knee_angle = 0.8 * np.sin(t)  # Radians (about 45 degrees max)
+    target_angle = 0.95 * (np.sin(t) + 1)
+    d_angle = target_angle - current_angle
     
-    # Reset joint positions to original
-    for joint_name, joint in skeleton.joints.items():
-        joint.position = np.array(joint.original_position)
+    axis_of_rotation = [1, 0, 0]
+    tibia.rotate(d_angle, axis_of_rotation, [knee_origin.x, knee_origin.y, knee_origin.z])
+    fibula.rotate(d_angle, axis_of_rotation, [knee_origin.x, knee_origin.y, knee_origin.z])
     
-    # Rotate tibia and fibula around the knee joint
-    skeleton.rotate_joint("tibia_top", [1, 0, 0], knee_angle)  # Rotate around X-axis
-    skeleton.rotate_joint("fibula_top", [1, 0, 0], knee_angle)
+    lateral_meniscus.rotate(angle=d_angle, axis=vector(*axis_of_rotation), origin=knee_origin)
+    medial_meniscus.rotate(angle=d_angle, axis=vector(*axis_of_rotation), origin=knee_origin)
     
-    # Update graphics
-    patella.pos = vector(0, 2.0 - 0.1 * np.sin(t), 0.15)  # Kneecap moves with knee
-    skeleton.update_graphics()
+    patella.pos.y = 2.0 - (target_angle * 0.15)
+    patella.pos.z = 0.18 - (target_angle * 0.08)
     
-    t += 0.05
+    for lig in ligaments:
+        lig.update()
+        
+    current_angle = target_angle
+    t += dt
