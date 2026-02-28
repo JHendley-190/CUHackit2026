@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Bluetooth Radar</title>
+  <style>
+    :root {
+      --bg-dark: #050b14; --panel-bg: rgba(13, 22, 37, 0.65);
+      --accent: #0ea5e9; --accent-glow: rgba(14, 165, 233, 0.5);
+      --text-main: #f8fafc; --text-muted: #64748b;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: radial-gradient(circle at 50% 0%, #1e293b 0%, transparent 50%);
+      color: var(--text-main); font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex; justify-content: center; align-items: center;
+      min-height: 100vh; margin: 0; overflow: hidden;
+    }
+
+    .dashboard {
+      background: var(--panel-bg); backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 24px;
+      padding: 2.5rem; width: 420px;
+      box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      display: flex; flex-direction: column; align-items: center;
+    }
+
+    .header-title {
+      font-size: 1.2rem; text-transform: uppercase; letter-spacing: 3px;
+      color: var(--text-muted); margin-bottom: 2rem; font-weight: 600;
+    }
+
+    /* Radar UI */
+    .radar-wrapper {
+      position: relative; width: 160px; height: 160px; border-radius: 50%;
+      border: 2px solid rgba(14, 165, 233, 0.2); display: flex;
+      justify-content: center; align-items: center; margin-bottom: 1.5rem;
+      box-shadow: 0 0 40px rgba(14, 165, 233, 0.1);
+    }
+
+    .radar-sweep {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      border-radius: 50%; background: conic-gradient(from 0deg, transparent 70%, rgba(14, 165, 233, 0.8) 100%);
+      opacity: 0; transition: opacity 0.3s ease;
+    }
+
+    .scanning .radar-sweep { opacity: 1; animation: spin 2s linear infinite; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    .scan-btn {
+      position: relative; z-index: 10; width: 70px; height: 70px;
+      border-radius: 50%; border: none; background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: white; font-weight: bold; font-size: 0.85rem; letter-spacing: 1px;
+      cursor: pointer; box-shadow: 0 0 20px var(--accent-glow); transition: all 0.2s ease;
+    }
+    .scan-btn:hover { transform: scale(1.05); box-shadow: 0 0 30px var(--accent); }
+    .scan-btn:active { transform: scale(0.95); }
+    .scanning .scan-btn { background: #0284c7; animation: pulse 1s infinite alternate; }
+
+    /* Search Bar */
+    .search-container { width: 100%; margin-bottom: 1rem; }
+    .search-box {
+      width: 100%; padding: 12px 16px; border-radius: 12px;
+      background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #f8fafc; font-size: 0.9rem; box-sizing: border-box; transition: all 0.2s;
+    }
+    .search-box:focus { outline: none; border-color: var(--accent); background: rgba(0, 0, 0, 0.4); }
+
+    /* Device List */
+    .device-list {
+      width: 100%; max-height: 250px; overflow-y: auto;
+      margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px;
+    }
+    .device-list::-webkit-scrollbar { width: 6px; }
+    .device-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    .device-item {
+      background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px;
+      animation: slideIn 0.3s ease-out; transition: opacity 0.3s;
+    }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    .device-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .device-info { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+    .device-name { font-weight: 600; font-size: 0.95rem; }
+    .device-id { font-family: monospace; font-size: 0.7rem; color: var(--text-muted); }
+    
+    /* IMU Data Display */
+    .device-imu-data {
+      font-family: monospace; font-size: 0.85rem; color: #4ade80;
+      background: rgba(0, 0, 0, 0.4); padding: 8px 10px;
+      border-left: 3px solid #4ade80; border-radius: 4px; 
+      word-break: break-all; display: none; margin-top: 6px;
+    }
+
+    /* Status Badges */
+    .status-badge { padding: 4px 8px; border-radius: 12px; font-size: 0.65rem; font-weight: bold; text-transform: uppercase; }
+    .badge-ready { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+    .badge-connecting { background: rgba(245, 158, 11, 0.2); color: #fbbf24; animation: blink 1s infinite; }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .badge-failed { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    @keyframes blink { 50% { opacity: 0.5; } }
+
+    /* Buttons */
+    .device-actions { display: flex; gap: 8px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 10px; }
+    .btn-action {
+      background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem;
+      cursor: pointer; transition: all 0.2s; flex: 1; font-weight: 600;
+    }
+    .btn-action:hover:not(:disabled) { filter: brightness(1.2); }
+    .btn-action:disabled { opacity: 0.3; cursor: not-allowed; display: none; }
+    
+    .btn-connect { background: rgba(16, 185, 129, 0.1); color: #34d399; border-color: rgba(16, 185, 129, 0.3); }
+    .btn-disconnect { background: rgba(245, 158, 11, 0.1); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+    .btn-forget { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+  </style>
+</head>
+<body>
+
+  <div class="dashboard">
+    <div class="header-title">BLUETOOTH Local Radar</div>
+    <div class="radar-wrapper" id="radar-wrapper">
+      <div class="radar-sweep"></div>
+      <button class="scan-btn" id="scan-btn">SCAN</button>
+    </div>
+    <div class="search-container">
+      <input type="text" id="search-box" class="search-box" placeholder="Filter saved devices...">
+    </div>
+    <ul class="device-list" id="device-list"></ul>
+  </div>
+
+  <script>
+    // ==========================================
+    // YOUR NORDIC CUSTOM UUIDS
+    // ==========================================
+    const IMU_SERVICE_UUID = '4998e78c-5b56-4d31-baa0-b46eddc6e573'; 
+    const IMU_CHAR_UUID    = '861a4d03-44e2-4877-8557-671e08abb546'; 
+    // ==========================================
+
+    const scanBtn = document.getElementById('scan-btn');
+    const radarWrapper = document.getElementById('radar-wrapper');
+    const deviceList = document.getElementById('device-list');
+    const searchBox = document.getElementById('search-box');
+
+    searchBox.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase();
+      deviceList.querySelectorAll('.device-item').forEach(item => {
+        const name = item.querySelector('.device-name').innerText.toLowerCase();
+        item.style.display = name.includes(query) ? 'flex' : 'none';
+      });
+    });
+
+    scanBtn.addEventListener('click', async () => {
+      radarWrapper.classList.add('scanning');
+      scanBtn.innerText = 'WAIT';
+
+      try {
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Knee Sensor' }], 
+          optionalServices: ['generic_access', IMU_SERVICE_UUID] 
+        });
+        
+        radarWrapper.classList.remove('scanning');
+        scanBtn.innerText = 'SCAN';
+
+        if (document.getElementById(`device-${device.id}`)) return;
+
+        const li = document.createElement('li');
+        li.className = 'device-item';
+        li.id = `device-${device.id}`;
+        
+        li.innerHTML = `
+          <div class="device-header">
+            <div class="device-info">
+              <span class="device-name">${device.name || 'Unknown Device'}</span>
+              <span class="device-id">ID: ${device.id}</span>
+              <div class="device-imu-data">Awaiting Data...</div>
+            </div>
+            <div class="status-badge badge-ready">Ready</div>
+          </div>
+          <div class="device-actions">
+            <button class="btn-action btn-connect">Connect</button>
+            <button class="btn-action btn-disconnect" disabled>Disconnect</button>
+            <button class="btn-action btn-forget">Forget</button>
+          </div>
+        `;
+        
+        deviceList.prepend(li);
+
+        const badge = li.querySelector('.status-badge');
+        const imuDisplay = li.querySelector('.device-imu-data');
+        const btnConnect = li.querySelector('.btn-connect');
+        const btnDisconnect = li.querySelector('.btn-disconnect');
+        const btnForget = li.querySelector('.btn-forget');
+
+        const setUIState = (state) => {
+          if (state === 'ready' || state === 'disconnected') {
+            badge.className = 'status-badge badge-ready';
+            badge.innerText = state === 'ready' ? 'Ready' : 'Disconnected';
+            btnConnect.disabled = false; btnConnect.style.display = 'block';
+            btnDisconnect.disabled = true; btnDisconnect.style.display = 'none';
+          } 
+          else if (state === 'connecting') {
+            badge.className = 'status-badge badge-connecting';
+            badge.innerText = 'Pairing...';
+            btnConnect.disabled = true; btnDisconnect.disabled = true;
+          }
+          else if (state === 'connected') {
+            badge.className = 'status-badge badge-success';
+            badge.innerText = 'Connected';
+            btnConnect.disabled = true; btnConnect.style.display = 'none';
+            btnDisconnect.disabled = false; btnDisconnect.style.display = 'block';
+          }
+        };
+
+        setUIState('ready');
+
+        device.addEventListener('gattserverdisconnected', () => {
+          setUIState('disconnected');
+          imuDisplay.style.display = 'none';
+        });
+
+        // ==========================================
+        // THE CONNECTION & DATA STREAM LOGIC
+        // ==========================================
+        btnConnect.addEventListener('click', async () => {
+          setUIState('connecting');
+          try {
+            const server = await device.gatt.connect();
+            setUIState('connected');
+
+            try {
+              // 1. Find the specific Service
+              const service = await server.getPrimaryService(IMU_SERVICE_UUID);
+              
+              // 2. Find the specific Characteristic
+              const characteristic = await service.getCharacteristic(IMU_CHAR_UUID);
+              
+              // 3. Subscribe to live notifications
+              await characteristic.startNotifications();
+              imuDisplay.style.display = 'block';
+              imuDisplay.innerText = "Stream Linked...";
+
+              // 4. Parse incoming Nordic Little-Endian 16-bit Integer
+              characteristic.addEventListener('characteristicvaluechanged', (event) => {
+                const dataView = event.target.value;
+                
+                // .getUint16(0, true) means:
+                // Start at byte 0, read 16 bits, 'true' = Little-Endian
+                const sensorValue = dataView.getUint16(0, true);
+                
+                imuDisplay.innerText = `CAPACITANCE: ${sensorValue}`;
+              });
+
+            } catch (serviceErr) {
+              console.warn("Could not find IMU service on this device.", serviceErr);
+              imuDisplay.style.display = 'block';
+              imuDisplay.style.color = '#f87171';
+              imuDisplay.style.borderLeftColor = '#f87171';
+              imuDisplay.innerText = "IMU Service not found.";
+            }
+
+          } catch (err) {
+            console.error("Connection Failed:", err);
+            badge.className = 'status-badge badge-failed';
+            badge.innerText = 'Failed';
+            setTimeout(() => setUIState('ready'), 3000);
+          }
+        });
+
+        btnDisconnect.addEventListener('click', () => {
+          if (device.gatt.connected) device.gatt.disconnect();
+        });
+
+        btnForget.addEventListener('click', async () => {
+          try {
+            if (device.gatt.connected) device.gatt.disconnect();
+            if (device.forget) {
+              await device.forget();
+              alert(`Session forgotten for ${device.name}.\n\nNote: If you paired this device through your computer's main Bluetooth settings, you will need to remove it there to completely unpair it from your hardware.`);
+            } else {
+              alert("Your browser does not support the Web Bluetooth Forget API yet. The device is disconnected, but permissions remain until you restart the browser.");
+            }
+            li.style.opacity = '0';
+            setTimeout(() => li.remove(), 300);
+          } catch (err) {
+            console.error("Could not forget:", err);
+          }
+        });
+
+      } catch (error) {
+        radarWrapper.classList.remove('scanning');
+        scanBtn.innerText = 'SCAN';
+      }
+    });
+  </script>
+</body>
+</html>
