@@ -42,6 +42,22 @@ const server = http.createServer((req, res) => {
         try {
           const data = JSON.parse(body);
           latestNordicData = data.value;
+
+          // forward the same payload to the IMU dashboard running on port 4000
+          const forwardOptions = {
+            hostname: '127.0.0.1',
+            port: 4000,
+            path: '/imu',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          };
+          const dashReq = http.request(forwardOptions, dashRes => {
+            // ignore response, but you can log statusCode if you want
+          });
+          dashReq.on('error', err => console.error('dash forward error', err));
+          dashReq.write(JSON.stringify({ value: latestNordicData }));
+          dashReq.end();
+
           res.writeHead(200);
           res.end('OK');
         } catch (e) {
